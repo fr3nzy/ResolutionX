@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+
+from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Vte
+import sys, shutil
+import os	# enables us to use randr # TODO: remove usage of the "os" module
+import subprocess # replaces os module
+
+# debugging
+import faulthandler
+faulthandler.enable()
+
+class ResolutionX(Gtk.Window):
+	def __init__(self):
+		
+		Gtk.Window.__init__(self, title="ResolutionX")
+		
+		# set the default window values
+		self.set_default_size(550, 250)
+		self.set_border_width(3)
+		self.set_icon_from_file("display.svg")
+		
+		# set the Gtk+3 theme to Arc
+		try:
+			style_context = self.get_style_context()
+			css_provider = Gtk.CssProvider()
+			css_provider.load_from_path("arc-theme-master/common/gtk-3.0/3.14/gtk.css")
+			screen = Gdk.Screen.get_default()
+			style_context.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+		except Exception:
+			print("Fatal Error: Unable to load Gtk+3 theme!")
+			
+		# HeaderBar
+		header = Gtk.HeaderBar(title="ResolutionX")
+		header.set_subtitle("Front end to XRandR")
+		header.props.show_close_button = True
+		self.set_titlebar(header)
+		
+		# help menu - format: menubar -> helpMenu -> menu -> aboutMenu & quitMenu
+		menubar = Gtk.MenuBar()
+		menubar.set_hexpand(True)
+		
+		helpMenu = Gtk.MenuItem(label="Help")
+		menubar.append(helpMenu)
+		
+		menu = Gtk.Menu()
+		helpMenu.set_submenu(menu)
+		
+		# "About" menu item
+		aboutMenu = Gtk.MenuItem(label="About")
+		aboutMenu.connect("activate", self.aboutMenu_clicked)
+		menu.append(aboutMenu)
+		# "Quit" menu item
+		quitMenu = Gtk.MenuItem(label="Quit")
+		quitMenu.connect("activate", Gtk.main_quit)
+		# quitMenu.set_accel_group(quitAccel)
+		menu.append(quitMenu)
+		
+		# horizontal separator
+		separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+		
+		# detect and store monitor output type - eg. VGA1, DVI-0
+		monitorType = os.popen("xrandr | grep ' connected ' | awk '{ print$1 }'").readlines()
+		with open('config.sh', 'w') as fWrite:
+			fWrite.write(str(monitorType))
+		
+		global CmonitorType	
+		# get the input from [config.sh]
+		with open('config.sh', 'r') as fRead:
+			for line in fRead:
+				CmonitorType = line
+
+		# edit CmonitorType so we can use it
+		CmonitorType = CmonitorType[2:]
+		CmonitorType = CmonitorType[:5]
+		# print CmonitorType # verification <------- commented out
+		
+		# self.resolution combo box
+		label = Gtk.Label("Resolution:")
+		# create combo box
+		self.ResComboB = Gtk.ComboBoxText()
+		self.ResComboB.append("R1", '1024 x 768')
+		self.ResComboB.append("R2", '1280 x 960')
+		self.ResComboB.append("R3", '1366 x 768')
+		self.ResComboB.append("R4", '1280 x 1024')
+		self.ResComboB.append("R5", '1440 x 900')
+		self.ResComboB.append("R5", '1440 x 960')
+		self.ResComboB.append("R6", '1440 x 1080')
+		self.ResComboB.append("R7", '1600 x 1200')
+		self.ResComboB.append("R8", '1920 x 1080')
+		self.ResComboB.append("R9", '1920 x 1200')
+			
+		self.ResComboB.set_active(0)
+		self.ResComboB.connect("changed", self.ResComboB_changed)
+		
+		# monitor name combo box
+		labelMO = Gtk.Label("Monitor Output:")
+		# create combo box
+		moCombo = Gtk.ComboBoxText()
+		moCombo.append("M1" ,CmonitorType)
+		# set CmonitorType as the default selected item
+		moCombo.set_active(0)
+		
+		# apply button
+		applyBtn = Gtk.Button("Apply")
+		applyBtn.set_size_request(110, 29)
+		applyBtn.connect("clicked", self.applyBtn_on_clicked)
+		
+		# TODO: show output of xrandr commands
+		self.terminal = Vte.Terminal()
+		self.terminal.spawn_sync(
+			Vte.PtyFlags.DEFAULT, 
+			os.environ["HOME"], 
+			["/bin/sh"],
+			[],
+			GLib.SpawnFlags.DO_NOT_REAP_CHILD, 
+			None, 
+			None)
+		# potential solution to show output of commands: https://pygabriel.wordpress.com/2009/07/27/redirecting-the-stdout-on-a-gtk-textview/	
+		# also: http://stackoverflow.com/a/25267338/3445571
+		terminalScroll = Gtk.ScrolledWindow()
+		terminalScroll.set_hexpand(True)
+		terminalScroll.set_vexpand(True)
+		terminalScroll.set_size_request(550, 120)
+		terminalScroll.add(self.terminal)
+		
+		# add widgets to the main window
+		fix = Gtk.Fixed()
+		fix.put(menubar, 0, 0)
+		fix.put(separator, 10, 20)
+		fix.put(self.ResComboB, 83, 68)
+		fix.put(label, 15, 75)
+		fix.put(moCombo, 315, 68)
+		fix.put(labelMO, 215, 75)
+		fix.put(applyBtn, 430, 68)
+		fix.put(terminalScroll, 0, 120)
+		self.add(fix)
+		self.show_all()
+
+	# creates/opens/closes the about dialog
+	def aboutMenu_clicked(self, widget, data=None):
+    		about = Gtk.AboutDialog()
+    		about.set_name("About ResolutionX")
+    		about.set_version("0.2")
+    		# potential solution to segmentation: increase OS stack size with "ulimit -c"
+    		about.set_comments("A simple tool that uses xrandr to set resolutions not available from the Display window")
+    		about.set_website("http://sourceforge.net/projects/resolutionx/")
+    		about.set_website_label("ResolutionX on SourceForge")
+    		about.set_authors(["Bilal Bernardot\nCopright (C) 2016 "])
+    		about.set_license(" This program is free software: you can redistribute it and/or modify\n "
+    			"it under the terms of the GNU General Public License as published by\n "
+    			"the Free Software Foundation, either version 3 of the License, or\n "
+    			"(at your option) any later version.\n\n "
+    			"This program is distributed in the hope that it will be useful,\n "
+    			"but WITHOUT ANY WARRANTY; without even the implied warranty of\n "
+    			"MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n "
+    			"GNU General Public License for more details.\n\n "
+    			"You should have received a copy of the GNU General Public License\n "
+    			"along with this program.  If not, see <http://www.gnu.org/licenses/>.")
+    		about.set_wrap_license(True)
+    		about.run()
+    		about.destroy()
+	
+	def ResComboB_changed(self, widget):
+		global readString
+		string = self.ResComboB.get_active_text()
+		stringRes = string.replace("x", "") # remove the "x" from the self.resolution mode selected
+		# get the ouptut from the command | cvt x y | where in mode 1280x1024 x=1280 & y=1024
+		stringConfig = os.popen("cvt " + stringRes).readlines()
+	
+		# create the file [config.sh] and open it for writing
+		with open('config.sh', 'w') as fWrite:
+		# write the xrandr configuration into the file so we can edit it
+			fWrite.write(str(stringConfig))
+
+
+		with open('config.sh', 'r') as fRead:
+			# get input from [config.sh] and edit <Modeline> according to the choice of self.resolution
+			if (string=="1024 x 768"):
+				for line in fRead: # for every line in [config.sh];
+					storedString = line # store in variable <storedString>
+					readString = storedString[83:] # remove unwanted output from start
+					self.readString = readString[:76] # remove double quotes from end
+					print(self.readString) # debugging
+					self.resolution = self.readString[:16] # get self.resolution mode - with double quotes
+					print(self.resolution) #debugging
+			if (string=="1366 x 768"):
+				for line in fRead:
+					storedString = line
+					readString = storedString[76:]
+					self.readString = readString[:76]
+					print(self.readString) # verification
+					self.resolution = self.readString[:16]
+			if (string=="1280 x 960") or (string=="1440 x 900"):
+				for line in fRead:
+					storedString = line
+					readString = storedString[84:]
+					self.readString = readString[:76]
+					print (self.readString) # verification
+					self.resolution = self.readString[:16]
+			if (string=="1440 x 960"):
+				for line in fRead:
+					storedString = line
+					readString = storedString[77:]
+					self.readString = readString[:76]
+					print (self.readString) # verification
+					self.resolution = self.readString[:16]
+			if (string=="1280 x 1024") or (string=="1440 x 1080") or (string=="1600 x 1200") or (string=="1920 x 1080") or (string=="1920 x 1200"):
+				for line in fRead:
+					storedString = line
+					readString = storedString[85:]
+					self.readString = readString[:81]
+					print (self.readString) # verification
+					self.resolution = self.readString[:17]
+					
+		
+	def applyBtn_on_clicked(self, button):
+		# set the default gamma size - attempt to remove "Gamma Failed" errors
+		subprocess.call("xrandr --output {} --gamma 1:1:1".format(CmonitorType), shell=True)
+		print("xrandr --output {} --gamma 1:1:1".format(CmonitorType))
+		# generate randr newmode eg. -> |xrandr --newmode "1280x1024_60.00"  109.00  1280 1368 1496 1712  1024 1027 1034 1063 -hsync +vsync|		
+		subprocess.call("xrandr --newmode {}".format(self.readString), shell=True)
+		print("xrandr --newmode {}".format(self.readString))
+
+		# remove the speech marks from [self.resolution] variable
+		self.resolution = self.resolution.replace("\"", "")
+		
+		# execute the randr commands ..
+		# eg. xrandr -addmode DVI-1 1280x1024_60.00
+		subprocess.call("xrandr --addmode {0} {1}".format(CmonitorType, self.resolution), shell=True)
+		print("xrandr --addmode {0} {1}".format(CmonitorType, self.resolution))
+
+		# eg. xrandr --output DVI-1 --mode 1280x1024_60.00
+		subprocess.call("xrandr --output {0} --mode {1}".format(CmonitorType, self.resolution), shell=True)
+		print("xrandr --output {0} --mode {1}".format(CmonitorType, self.resolution))
+		
+		# create the file [resolutionx.sh]
+		print("Creating file \"resolutionx.sh\"...")
+		subprocess.call("touch resolutionx.sh", shell=True)
+		# add the commands to [resolutionx.sh]
+		print("Writing commands to \"resolutionx.sh\"...")
+		with open("resolutionx.sh", "a") as f:
+			f.write("xrandr --newmode {} && ".format(readString))
+			f.write("xrandr --addmode {0} {1} && ".format(CmonitorType, self.resolution))
+			f.write("xrandr --output {0} --mode {1}".format(CmonitorType, self.resolution))
+		
+		# add the script as a startup application
+		print("Adding \"resolutionx.sh\" as a startup script")
+		subprocess.call("python3 set_startupscript.py 'resolutionx' '/bin/bash resolutionx.sh'", shell=True)
+		home = os.environ["HOME"]
+		dr = home + "/.config/autostart/"
+		shutil.copy("resolutionx.sh", dr)
+	  	
+window = ResolutionX()
+window.show_all()
+window.connect("delete-event", Gtk.main_quit)
+Gtk.main()
