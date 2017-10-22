@@ -1,0 +1,2 @@
+# ResolutionX
+xRandR frontend
